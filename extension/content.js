@@ -1,5 +1,5 @@
 // content.js
-const API_BASE = "http://127.0.0.1:8000";
+const API_BASE = "https://job-apply-backend-hl5v.onrender.com";
 
 // Comprehensive field matching dictionary
 const FIELD_RULES = {
