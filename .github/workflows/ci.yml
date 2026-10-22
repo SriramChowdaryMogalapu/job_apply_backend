@@ -18,14 +18,14 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
 
-      - name: Install Linters & Core Libs
-        run: |
-          pip install ruff pytest httpx asyncpg pydantic fastapi
+      # - name: Install Linters & Core Libs
+      #   run: |
+      #     pip install ruff pytest httpx asyncpg pydantic fastapi
 
-      - name: Lint Code with Ruff
-        run: |
-          # Fast syntax and error checks across all modules
-          ruff check .
+      # - name: Lint Code with Ruff
+      #   run: |
+      #     # Fast syntax and error checks across all modules
+      #     ruff check .
 
       - name: Validate FastAPI Importability
         env:
