@@ -4,7 +4,7 @@ from typing import List, Dict, Tuple
 import asyncpg
 
 # Set via environment variable: export DATABASE_URL="your_pooled_uri_here"
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:%24TxRe%23J_4PG%262%21L@db.faeevhssnyjunbsguqce.supabase.co:5432/postgres")
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres.faeevhssnyjunbsguqce:%24TxRe%23J_4PG%262%21L@aws-1-ap-northeast-1.pooler.supabase.com:5432/postgres")
 
 _pool: asyncpg.Pool = None
 
