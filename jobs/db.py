@@ -48,32 +48,52 @@ async def sync_jobs_pooled(jobs: List[Dict]) -> Tuple[int, int]:
     - Preserves user-assigned status ('QUEUED', 'APPLIED', 'IGNORED').
     - Preserves 'notified' flag.
     - Updates 'last_seen_at' and latest fit score.
-    Returns: (total_inserted_or_refreshed, newly_inserted)
+    Returns: (total_processed, newly_inserted)
     """
     if not jobs:
         return 0, 0
 
     pool = await init_db_pool()
 
-    # Prepare records for batch insertion
-    records = []
+    # Deduplicate in-memory by generated ID before hitting the DB
+    deduped_jobs: Dict[str, Dict] = {}
     for j in jobs:
-        records.append((
-            generate_dedup_id(j),
-            j.get("url", ""),
-            j.get("title", ""),
-            j.get("company", ""),
-            j.get("location", ""),
-            j.get("category", "General"),
-            j.get("fit_score", 0),
-            j.get("experience_required", "Not specified"),
-            j.get("skills_required", ""),
-            j.get("posted_date", "Not specified"),
-            j.get("last_date_to_apply", "Not specified"),
-            j.get("contacts", "Not specified"),
-            j.get("source", "").upper()
-        ))
+        dedup_id = generate_dedup_id(j)
+        deduped_jobs[dedup_id] = j
 
+    total_processed = len(deduped_jobs)
+
+    # Deconstruct into parallel arrays for unnest
+    ids = []
+    urls = []
+    titles = []
+    companies = []
+    locations = []
+    categories = []
+    fit_scores = []
+    exp_required = []
+    skills_required = []
+    posted_dates = []
+    last_dates = []
+    contacts = []
+    sources = []
+
+    for jid, j in deduped_jobs.items():
+        ids.append(jid)
+        urls.append(j.get("url", ""))
+        titles.append(j.get("title", ""))
+        companies.append(j.get("company", ""))
+        locations.append(j.get("location", ""))
+        categories.append(j.get("category", "General"))
+        fit_scores.append(int(j.get("fit_score", 0)))
+        exp_required.append(j.get("experience_required", "Not specified"))
+        skills_required.append(j.get("skills_required", ""))
+        posted_dates.append(j.get("posted_date", "Not specified"))
+        last_dates.append(j.get("last_date_to_apply", "Not specified"))
+        contacts.append(j.get("contacts", "Not specified"))
+        sources.append(j.get("source", "").upper())
+
+    # Single-query batch upsert with unnest()
     upsert_query = """
     INSERT INTO public.jobs (
         id, url, title, company, location, category, fit_score,
@@ -81,11 +101,17 @@ async def sync_jobs_pooled(jobs: List[Dict]) -> Tuple[int, int]:
         last_date_to_apply, contacts, source, status, notified, 
         first_seen_at, last_seen_at
     )
-    VALUES (
-        $1, $2, $3, $4, $5, $6, $7,
-        $8, $9, $10,
-        $11, $12, $13, 'DISCOVERED', FALSE,
-        NOW(), NOW()
+    SELECT
+        u.id, u.url, u.title, u.company, u.location, u.category, u.fit_score,
+        u.exp, u.skills, u.posted, u.last_date, u.contacts, u.source,
+        'DISCOVERED', FALSE, NOW(), NOW()
+    FROM UNNEST(
+        $1::text[], $2::text[], $3::text[], $4::text[], $5::text[],
+        $6::text[], $7::int[],  $8::text[], $9::text[], $10::text[],
+        $11::text[], $12::text[], $13::text[]
+    ) AS u(
+        id, url, title, company, location, category, fit_score,
+        exp, skills, posted, last_date, contacts, source
     )
     ON CONFLICT (id) DO UPDATE SET
         fit_score = EXCLUDED.fit_score,
@@ -95,10 +121,20 @@ async def sync_jobs_pooled(jobs: List[Dict]) -> Tuple[int, int]:
 
     async with pool.acquire() as conn:
         async with conn.transaction():
-            results = await conn.executemany(upsert_query, records)
+            rows = await conn.fetch(
+                upsert_query,
+                ids, urls, titles, companies, locations, categories,
+                fit_scores, exp_required, skills_required, posted_dates,
+                last_dates, contacts, sources
+            )
 
-    # In PostgreSQL, xmax = 0 evaluates to True when an INSERT actually occurred rather than an UPDATE
-    return len(records)
+    # In PostgreSQL: xmax = 0 evaluates to True when an INSERT occurred rather than an UPDATE
+    newly_inserted = sum(1 for r in rows if r["is_new"])
+    refreshed_existing = total_processed - newly_inserted
+    
+    print(f"[*] Processed {total_processed} jobs: {newly_inserted} new, {refreshed_existing} refreshed.")
+
+    return total_processed, newly_inserted
 
 async def get_unnotified_preferred_jobs(limit: int = 10) -> List[Dict]:
     """Fetches high-priority jobs that have not yet been sent to your morning digest."""

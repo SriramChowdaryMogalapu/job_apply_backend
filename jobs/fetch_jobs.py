@@ -641,9 +641,12 @@ async def main():
 
     # 2. Sync to Supabase via Pooled Connection
     try:
-        await init_db_pool()
-        total_synced = await sync_jobs_pooled(combined_jobs)
-        print(f"[*] Pooled DB Sync Complete: Synced {total_synced} listings to Supabase.")
+        total_processed, newly_inserted = await sync_jobs_pooled(combined_jobs)
+        refreshed_count = total_processed - newly_inserted
+        print(
+            f"[*] Pooled DB Sync Complete: {total_processed} processed "
+            f"({newly_inserted} newly inserted, {refreshed_count} existing/refreshed)."
+        )
     except Exception as e:
         print(f"[!] Database sync error: {e}")
     finally:
