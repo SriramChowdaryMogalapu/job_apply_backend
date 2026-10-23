@@ -1,4 +1,6 @@
 name: Daily Job Harvest
+env:
+   DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
 on:
   schedule:
