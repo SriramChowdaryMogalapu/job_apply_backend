@@ -56,7 +56,7 @@ async def get_db_connection() -> asyncpg.Connection:
 
 async def fetch_pending_jobs(conn: asyncpg.Connection, limit: int = 5) -> List[Dict[str, Any]]:
     """
-    Fetches the highest-ranking DISCOVERED jobs that haven't been notified yet.
+    Fetches the highest-ranking DISCOVERED jobs where notified is FALSE or NULL.
     Prioritizes 'Preferred' category and highest fit scores.
     """
     query = """
@@ -73,6 +73,7 @@ async def fetch_pending_jobs(conn: asyncpg.Connection, limit: int = 5) -> List[D
             url
         FROM public.jobs
         WHERE status = 'DISCOVERED'
+          AND (notified IS FALSE OR notified IS NULL)
         ORDER BY 
             CASE WHEN category = 'Preferred' THEN 1 ELSE 2 END,
             fit_score DESC,
@@ -85,7 +86,7 @@ async def fetch_pending_jobs(conn: asyncpg.Connection, limit: int = 5) -> List[D
 
 async def mark_jobs_as_notified(conn: asyncpg.Connection, job_ids: List[str]) -> None:
     """
-    Updates the database records to avoid sending duplicate alerts.
+    Sets notified to TRUE and updates status to QUEUED for dispatched jobs.
     """
     if not job_ids:
         return
@@ -93,8 +94,7 @@ async def mark_jobs_as_notified(conn: asyncpg.Connection, job_ids: List[str]) ->
     query = """
         UPDATE public.jobs
         SET 
-            status = 'QUEUED',
-            updated_at = NOW()
+            notified = TRUE
         WHERE id = ANY($1::text[]);
     """
     await conn.execute(query, job_ids)
