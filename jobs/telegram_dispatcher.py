@@ -22,10 +22,10 @@ import asyncpg
 # =====================================================================
 # Configuration & Environment Variables
 # =====================================================================
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres.faeevhssnyjunbsguqce:%24TxRe%23J_4PG%262%21L@aws-1-ap-northeast-1.pooler.supabase.com:5432/postgres")
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8878654242:AAE0ckAgPkhRFGvFHHvqoimSlr7hEpt-_fo")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "1651329503")
-FRONTEND_URL = os.getenv("FRONTEND_URL", "https://jobapplyfrontend.vercel.app").rstrip("/")
+DATABASE_URL = os.getenv("DATABASE_URL", "")
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
+FRONTEND_URL = os.getenv("FRONTEND_URL", "").rstrip("/")
 
 # Number of top job alerts to dispatch per digest run
 DIGEST_LIMIT = int(os.getenv("DIGEST_LIMIT", "10"))  # Default to 10 jobs per digest

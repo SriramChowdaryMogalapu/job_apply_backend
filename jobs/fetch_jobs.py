@@ -3,7 +3,7 @@ import os
 import re
 import csv
 import time
-from typing import List, Dict, Tuple, Any, Callable
+from typing import List, Dict, Tuple, Any, Callable, Optional
 import httpx
 from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright
