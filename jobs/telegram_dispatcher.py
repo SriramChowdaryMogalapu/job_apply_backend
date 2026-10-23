@@ -1,164 +1,277 @@
-import os
-import asyncio
-from typing import List
-import httpx
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (
-    ApplicationBuilder,
-    CallbackQueryHandler,
-    CommandHandler,
-    ContextTypes
-)
-from db import init_db_pool, close_db_pool
+#!/usr/bin/env python3
+"""
+Telegram Job Alert Dispatcher
+-----------------------------
+Pulls newly discovered high-fit jobs from PostgreSQL / Supabase,
+formats notification cards, dispatches them to a Telegram chat,
+and marks the records as notified.
+"""
 
+import os
+import sys
+import ssl
+import socket
+import asyncio
+import urllib.parse
+from typing import List, Dict, Any, Optional
+
+import httpx
+import asyncpg
+
+
+# =====================================================================
+# Configuration & Environment Variables
+# =====================================================================
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres.faeevhssnyjunbsguqce:%24TxRe%23J_4PG%262%21L@aws-1-ap-northeast-1.pooler.supabase.com:5432/postgres")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8878654242:AAE0ckAgPkhRFGvFHHvqoimSlr7hEpt-_fo")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "1651329503")
+FRONTEND_URL = os.getenv("FRONTEND_URL", "https://jobapplyfrontend.vercel.app").rstrip("/")
 
-# ----------------- 1. DISPATCH DIGEST TO MOBILE -----------------
+# Number of top job alerts to dispatch per digest run
+DIGEST_LIMIT = int(os.getenv("DIGEST_LIMIT", "10"))  # Default to 10 jobs per digest
 
-async def send_morning_digest(limit: int = 7):
-    """Fetches top unnotified preferred jobs from Supabase and sends cards to Telegram."""
-    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        print("[!] Missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID environment variables.")
+
+# =====================================================================
+# Database Helpers
+# =====================================================================
+async def get_db_connection() -> asyncpg.Connection:
+    if not DATABASE_URL:
+        raise ValueError("DATABASE_URL environment variable is missing.")
+
+    clean_uri = (
+        DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://")
+        .replace("postgres+asyncpg://", "postgres://")
+    )
+
+    ssl_ctx = ssl.create_default_context()
+    ssl_ctx.check_hostname = False
+    ssl_ctx.verify_mode = ssl.CERT_NONE
+
+    return await asyncpg.connect(
+        clean_uri,
+        ssl=ssl_ctx,
+        statement_cache_size=0,
+    )
+
+
+async def fetch_pending_jobs(conn: asyncpg.Connection, limit: int = 5) -> List[Dict[str, Any]]:
+    """
+    Fetches the highest-ranking DISCOVERED jobs that haven't been notified yet.
+    Prioritizes 'Preferred' category and highest fit scores.
+    """
+    query = """
+        SELECT 
+            id,
+            title,
+            company,
+            location,
+            category,
+            fit_score,
+            skills_required,
+            experience_required,
+            source,
+            url
+        FROM public.jobs
+        WHERE status = 'DISCOVERED'
+        ORDER BY 
+            CASE WHEN category = 'Preferred' THEN 1 ELSE 2 END,
+            fit_score DESC,
+            first_seen_at DESC
+        LIMIT $1;
+    """
+    rows = await conn.fetch(query, limit)
+    return [dict(r) for r in rows]
+
+
+async def mark_jobs_as_notified(conn: asyncpg.Connection, job_ids: List[str]) -> None:
+    """
+    Updates the database records to avoid sending duplicate alerts.
+    """
+    if not job_ids:
         return
-
-    pool = await init_db_pool()
 
     query = """
-    SELECT id, title, company, location, fit_score, skills_required, experience_required, url, source
-    FROM public.jobs
-    WHERE status = 'DISCOVERED' 
-      AND notified = FALSE 
-      AND category = 'Preferred'
-    ORDER BY fit_score DESC
-    LIMIT $1;
+        UPDATE public.jobs
+        SET 
+            status = 'QUEUED',
+            updated_at = NOW()
+        WHERE id = ANY($1::text[]);
     """
-
-    async with pool.acquire() as conn:
-        rows = await conn.fetch(query, limit)
-
-    if not rows:
-        print("[*] No new unnotified preferred jobs found for digest.")
-        return
-
-    print(f"[*] Dispatching {len(rows)} top jobs to Telegram...")
-
-    async with httpx.AsyncClient(timeout=15) as client:
-        dispatched_ids = []
-
-        for job in rows:
-            dispatched_ids.append(job["id"])
-
-            msg_text = (
-                f"🎯 *{job['fit_score']}% FIT* | *{job['company']}*\n"
-                f"💼 *Role:* {job['title']}\n"
-                f"📍 *Location:* {job['location']}\n"
-                f"⏳ *Exp:* {job['experience_required']}\n"
-                f"🛠 *Skills:* {job['skills_required']}\n"
-                f"📡 *Source:* {job['source']}\n\n"
-                f"🔗 [Open Job Application Link]({job['url']})"
-            )
-
-            # Interactive action buttons
-            keyboard = {
-                "inline_keyboard": [
-                    [
-                        {"text": "📥 Queue to Apply", "callback_data": f"queue:{job['id']}"},
-                        {"text": "❌ Dismiss", "callback_data": f"dismiss:{job['id']}"}
-                    ]
-                ]
-            }
-
-            payload = {
-                "chat_id": TELEGRAM_CHAT_ID,
-                "text": msg_text,
-                "parse_mode": "Markdown",
-                "disable_web_page_preview": False,
-                "reply_markup": keyboard
-            }
-
-            resp = await client.post(
-                f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
-                json=payload
-            )
-            if resp.status_code != 200:
-                print(f"[!] Telegram send error: {resp.text}")
-
-        # Mark sent jobs so they aren't repeated tomorrow
-        async with pool.acquire() as conn:
-            await conn.execute("UPDATE public.jobs SET notified = TRUE WHERE id = ANY($1::text[]);", dispatched_ids)
-
-    print("[*] Morning digest dispatched successfully.")
+    await conn.execute(query, job_ids)
 
 
-# ----------------- 2. INTERACTIVE BUTTON CALLBACK LISTENER -----------------
+# =====================================================================
+# Message Formatting & Telegram Dispatcher
+# =====================================================================
+def format_job_message(job: Dict[str, Any]) -> str:
+    """
+    Creates a clean, scannable Markdown card for the Telegram chat.
+    """
+    title = job.get("title", "Unknown Role")
+    company = job.get("company", "Unknown Company")
+    location = job.get("location", "Remote / Unspecified")
+    fit_score = job.get("fit_score", 0)
+    source = (job.get("source") or "Job Board").upper()
+    exp = job.get("experience_required") or "Not specified"
+    skills = job.get("skills_required") or "Not specified"
 
-async def handle_button_press(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handles 'Queue' or 'Dismiss' button taps from your phone."""
-    query = update.callback_query
-    await query.answer()
+    if len(skills) > 120:
+        skills = skills[:117] + "..."
 
-    data = query.data or ""
-    action, _, job_id = data.partition(":")
-
-    pool = await init_db_pool()
-
-    if action == "queue":
-        new_status = "QUEUED"
-        status_label = "✅ Queued for Evening Apply Copilot"
-    elif action == "dismiss":
-        new_status = "IGNORED"
-        status_label = "🗑️ Dismissed"
-    else:
-        return
-
-    # Update database state in Supabase
-    async with pool.acquire() as conn:
-        await conn.execute(
-            "UPDATE public.jobs SET status = $1::job_status WHERE id = $2;",
-            new_status, job_id
-        )
-
-    # Edit the message on your phone to reflect the action taken
-    original_text = query.message.text or query.message.caption or ""
-    updated_text = f"{original_text}\n\n---\n*{status_label}*"
-
-    await query.edit_message_text(
-        text=updated_text,
-        parse_mode="Markdown"
+    return (
+        f"🎯 *{title}*\n"
+        f"🏢 *Company:* {company}\n"
+        f"📍 *Location:* {location}\n"
+        f"⚡ *Match Fit:* `{fit_score}%` | *Source:* `{source}`\n"
+        f"⏳ *Experience:* {exp}\n"
+        f"🛠 *Skills:* {skills}"
     )
+    
 
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "👋 Sriram's Job Copilot Bot is active!\n"
-        "Morning digests will arrive here at 8:00 AM IST.\n"
-        "Use /digest to manually trigger a fresh pull anytime."
-    )
+def create_job_action_keyboard(job_id: str, raw_job_url: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Builds an interactive Inline Keyboard with:
+    - ⚡ Review & AutoFill (opens your Next.js web application)
+    - 🌐 View Posting (optional direct link to Greenhouse/Indeed/Lever)
+    """
+    webapp_url = f"{FRONTEND_URL}/jobs/{job_id}"
 
-async def manual_digest_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🔎 Pulling latest preferred jobs from Supabase...")
-    await send_morning_digest(limit=5)
+    # Option A: Standard URL Button (opens in browser)
+    review_button = {
+        "text": "⚡ Review & AutoFill",
+        "url": webapp_url
+    }
+
+    # Option B (Alternative): Web App popup inside Telegram (uncomment if preferred)
+    # review_button = {
+    #     "text": "⚡ Review & AutoFill",
+    #     "web_app": {"url": webapp_url}
+    # }
+
+    buttons = [review_button]
+
+    # Optionally add a second button for the raw board link side-by-side
+    if raw_job_url:
+        buttons.append({
+            "text": "🌐 Original Post",
+            "url": raw_job_url
+        })
+
+    return {
+        "inline_keyboard": [buttons]
+    }
+
+async def send_telegram_message(
+    client: httpx.AsyncClient, 
+    bot_token: str, 
+    chat_id: str, 
+    text: str,
+    reply_markup: Optional[Dict[str, Any]] = None
+) -> bool:
+    """
+    Sends a message via the Telegram Bot API with optional inline keyboard buttons.
+    """
+    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+    payload: Dict[str, Any] = {
+        "chat_id": chat_id,
+        "text": text,
+        "parse_mode": "Markdown",
+        "disable_web_page_preview": True,  # Keep cards clean without link previews
+    }
+
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
+
+    try:
+        response = await client.post(url, json=payload, timeout=15.0)
+        if response.status_code == 200:
+            return True
+        else:
+            print(f"[!] Telegram API error ({response.status_code}): {response.text}")
+            return False
+    except Exception as exc:
+        print(f"[!] Network error sending message to Telegram: {exc}")
+        return False
 
 
-# ----------------- 3. ENTRYPOINT -----------------
+# =====================================================================
+# Main Orchestration Loop
+# =====================================================================
+async def dispatch_digest() -> None:
+    """
+    Main job dispatcher logic.
+    """
+    print("[*] Starting Telegram notification dispatcher...")
+
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        print("[!] Error: TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is missing.")
+        sys.exit(1)
+
+    # 1. Connect to DB
+    print("[*] Connecting to database...")
+    try:
+        conn = await get_db_connection()
+    except Exception as exc:
+        print(f"[!] Database connection failed: {exc}")
+        sys.exit(1)
+
+    try:
+        # 2. Fetch pending jobs
+        jobs = await fetch_pending_jobs(conn, limit=DIGEST_LIMIT)
+        if not jobs:
+            print("[*] No pending DISCOVERED jobs found to dispatch. Exiting.")
+            return
+
+        print(f"[*] Found {len(jobs)} jobs to notify.")
+
+        notified_ids = []
+        async with httpx.AsyncClient() as http_client:
+            # Send intro banner if sending a batch
+            header_text = f"📬 *Morning Job Digest: {len(jobs)} New Matched Openings*"
+            await send_telegram_message(http_client, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, header_text)
+            await asyncio.sleep(0.5)
+
+            # 3. Send each job card
+            for index, job in enumerate(jobs, start=1):
+                msg = format_job_message(job)
+                keyboard = create_job_action_keyboard(job["id"], job.get("url"))
+                
+                success = await send_telegram_message(
+                    client=http_client,
+                    bot_token=TELEGRAM_BOT_TOKEN,
+                    chat_id=TELEGRAM_CHAT_ID,
+                    text=msg,
+                    reply_markup=keyboard
+                )
+                
+                if success:
+                    notified_ids.append(job["id"])
+                    print(f"    [{index}/{len(jobs)}] Sent: {job.get('title')} at {job.get('company')}")
+                else:
+                    print(f"    [{index}/{len(jobs)}] Failed to send: {job.get('id')}")
+
+                await asyncio.sleep(1.0)
+
+        # 4. Update status in database
+        if notified_ids:
+            print(f"[*] Updating {len(notified_ids)} jobs to status 'QUEUED'...")
+            await mark_jobs_as_notified(conn, notified_ids)
+            print("[*] Status update complete.")
+
+    finally:
+        await conn.close()
+        print("[*] Database connection closed.")
+
 
 def main():
-    import sys
+    try:
+        asyncio.run(dispatch_digest())
+    except KeyboardInterrupt:
+        print("\n[!] Execution stopped by user.")
+    except Exception as e:
+        print(f"\n[!] Unexpected error: {e}")
+        sys.exit(1)
 
-    # If invoked directly with 'send', it sends the digest and exits (ideal for cron)
-    if len(sys.argv) > 1 and sys.argv[1] == "--send":
-        asyncio.run(send_morning_digest())
-        return
-
-    # Default: Run bot daemon to listen for interactive taps and manual /digest triggers
-    print("[*] Starting Telegram Bot listener daemon...")
-    app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
-
-    app.add_handler(CommandHandler("start", start_command))
-    app.add_handler(CommandHandler("digest", manual_digest_command))
-    app.add_handler(CallbackQueryHandler(handle_button_press))
-
-    app.run_polling()
 
 if __name__ == "__main__":
     main()

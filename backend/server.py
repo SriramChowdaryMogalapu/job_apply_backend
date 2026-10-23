@@ -15,7 +15,7 @@ app = FastAPI(title="JobApply Backend & Autofill Copilot API")
 # Enable CORS for local Next.js frontend and Chrome Extension
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Restrict to your domain/extension ID in production
+    allow_origins=["https://jobapplyfrontend.vercel.app"],  # Restrict to your domain/extension ID in production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
