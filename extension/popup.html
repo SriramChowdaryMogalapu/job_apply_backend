@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>JobApply Copilot</title>
+  <style>
+    body {
+      width: 290px;
+      margin: 0;
+      padding: 14px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: #ffffff;
+      color: #0f172a;
+      box-sizing: border-box;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+    }
+    .title {
+      font-size: 14px;
+      font-weight: 800;
+      letter-spacing: -0.01em;
+    }
+    .title span {
+      color: #059669;
+    }
+    .btn {
+      width: 100%;
+      padding: 9px 12px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      border: 1px solid transparent;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: background-color 0.15s ease;
+      box-sizing: border-box;
+    }
+    .btn-primary {
+      background-color: #059669;
+      color: #ffffff;
+    }
+    .btn-primary:hover {
+      background-color: #047857;
+    }
+    .btn-secondary {
+      background-color: #f1f5f9;
+      color: #334155;
+      border-color: #e2e8f0;
+      margin-bottom: 10px;
+    }
+    .btn-secondary:hover {
+      background-color: #e2e8f0;
+    }
+    .log-header {
+      font-size: 11px;
+      font-weight: 700;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 4px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .clear-link {
+      cursor: pointer;
+      color: #059669;
+      text-transform: none;
+      font-weight: 600;
+    }
+    #console {
+      height: 120px;
+      background-color: #0f172a;
+      color: #e2e8f0;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 10.5px;
+      line-height: 1.4;
+      padding: 8px;
+      border-radius: 6px;
+      overflow-y: auto;
+      border: 1px solid #1e293b;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .log-line {
+      margin-bottom: 4px;
+    }
+    .log-info { color: #38bdf8; }
+    .log-success { color: #34d399; }
+    .log-learned { color: #a7f3d0; }
+    .log-error { color: #f87171; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="title">JobApply<span>.copilot</span></div>
+  </div>
+
+  <button id="autofillBtn" class="btn btn-primary">
+    ⚡ Autofill This Page
+  </button>
+  <button id="profileBtn" class="btn btn-secondary">
+    👤 Edit Profile
+  </button>
+
+  <div class="log-header">
+    <span>Activity Log</span>
+    <span id="clearLogs" class="clear-link">Clear</span>
+  </div>
+  <div id="console">
+    <div class="log-line log-info">Ready to autofill.</div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

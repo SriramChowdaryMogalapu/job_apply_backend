@@ -1,0 +1,43 @@
+{
+  "manifest_version": 3,
+  "name": "JobApply Autofill Copilot",
+  "version": "1.0.2",
+  "description": "Smart adaptive auto-filler for job applications with continuous learning.",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "tabs",
+    "storage"
+  ],
+  "action": {
+    "default_title": "JobApply Copilot",
+    "default_popup": "popup.html"
+  },
+  "host_permissions": [
+    "https://job-apply-backend-hl5v.onrender.com/*",
+    "https://*/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.indeed.com/*",
+        "https://smartapply.indeed.com/*",
+        "https://boards.greenhouse.io/*",
+        "https://job-boards.greenhouse.io/*",
+        "https://jobs.lever.co/*",
+        "https://jobs.ashbyhq.com/*",
+        "https://*.workday.com/*",
+        "https://*.myworkdayjobs.com/*",
+        "https://www.naukri.com/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ],
+  "externally_connectable": {
+    "matches": [
+      "https://jobapplyfrontend.vercel.app/*"
+    ]
+  }
+}

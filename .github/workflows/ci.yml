@@ -1,0 +1,34 @@
+name: Continuous Integration
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  lint-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Linters & Core Libs
+        run: |
+          pip install -r backend/requirements.txt
+
+      # - name: Lint Code with Ruff
+      #   run: |
+      #     # Fast syntax and error checks across all modules
+      #     ruff check .
+
+      - name: Validate FastAPI Importability
+        env:
+          DATABASE_URL: "postgresql://dummy:dummy@localhost:5432/postgres"
+        run: |
+          python -c "import backend.server; print('Backend loaded cleanly!')"
