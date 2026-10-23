@@ -178,6 +178,27 @@ async def learn_field(payload: LearnFieldSchema):
 
 # ----------------- 3. JOB DETAILS & STATUS UPDATES -----------------
 
+@app.get("/api/jobs")
+async def get_all_jobs(
+    status_filter: Optional[str] = None,
+    category: Optional[str] = None,
+    limit: int = 100
+):
+    """Returns jobs feed for the frontend dashboard with optional status/category filters."""
+    query = """
+    SELECT id, title, company, location, category, fit_score,
+           skills_required, experience_required, posted_date, 
+           last_date_to_apply, contacts, source, status, url
+    FROM public.jobs
+    WHERE ($1::text IS NULL OR status = $1::job_status)
+      AND ($2::text IS NULL OR category = $2)
+    ORDER BY fit_score DESC, first_seen_at DESC
+    LIMIT $3;
+    """
+    async with _pool.acquire() as conn:
+        rows = await conn.fetch(query, status_filter, category, limit)
+        return [dict(r) for r in rows]
+
 @app.get("/api/jobs/{job_id}")
 async def get_job_by_id(job_id: str):
     """Used by the web frontend when opened via the Telegram deep link: /jobs/[job_id]"""
