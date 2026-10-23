@@ -1,4 +1,9 @@
 name: 8:00 AM Telegram Digest
+env:
+   TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+   TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+   DATABASE_URL: ${{ secrets.DATABASE_URL }}
+   FRONTEND_URL: ${{ secrets.FRONTEND_URL }} # if used
 
 on:
   schedule:

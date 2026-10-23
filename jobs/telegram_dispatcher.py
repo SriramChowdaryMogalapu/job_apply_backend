@@ -22,10 +22,10 @@ import asyncpg
 # =====================================================================
 # Configuration & Environment Variables
 # =====================================================================
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres.faeevhssnyjunbsguqce:%24TxRe%23J_4PG%262%21L@aws-1-ap-northeast-1.pooler.supabase.com:5432/postgres")
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8878654242:AAE0ckAgPkhRFGvFHHvqoimSlr7hEpt-_fo")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "1651329503")
-FRONTEND_URL = os.getenv("FRONTEND_URL", "https://jobapplyfrontend.vercel.app").rstrip("/")
+DATABASE_URL = os.getenv("DATABASE_URL", "")
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
+FRONTEND_URL = os.getenv("FRONTEND_URL", "").rstrip("/")
 
 # Number of top job alerts to dispatch per digest run
 DIGEST_LIMIT = int(os.getenv("DIGEST_LIMIT", "10"))  # Default to 10 jobs per digest
@@ -56,7 +56,7 @@ async def get_db_connection() -> asyncpg.Connection:
 
 async def fetch_pending_jobs(conn: asyncpg.Connection, limit: int = 5) -> List[Dict[str, Any]]:
     """
-    Fetches the highest-ranking DISCOVERED jobs that haven't been notified yet.
+    Fetches the highest-ranking DISCOVERED jobs where notified is FALSE or NULL.
     Prioritizes 'Preferred' category and highest fit scores.
     """
     query = """
@@ -73,6 +73,7 @@ async def fetch_pending_jobs(conn: asyncpg.Connection, limit: int = 5) -> List[D
             url
         FROM public.jobs
         WHERE status = 'DISCOVERED'
+          AND (notified IS FALSE OR notified IS NULL)
         ORDER BY 
             CASE WHEN category = 'Preferred' THEN 1 ELSE 2 END,
             fit_score DESC,
@@ -85,7 +86,7 @@ async def fetch_pending_jobs(conn: asyncpg.Connection, limit: int = 5) -> List[D
 
 async def mark_jobs_as_notified(conn: asyncpg.Connection, job_ids: List[str]) -> None:
     """
-    Updates the database records to avoid sending duplicate alerts.
+    Sets notified to TRUE and updates status to QUEUED for dispatched jobs.
     """
     if not job_ids:
         return
@@ -93,8 +94,7 @@ async def mark_jobs_as_notified(conn: asyncpg.Connection, job_ids: List[str]) ->
     query = """
         UPDATE public.jobs
         SET 
-            status = 'QUEUED',
-            updated_at = NOW()
+            notified = TRUE
         WHERE id = ANY($1::text[]);
     """
     await conn.execute(query, job_ids)

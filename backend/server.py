@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 import asyncpg
 
 # Environment config
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres.faeevhssnyjunbsguqce:%24TxRe%23J_4PG%262%21L@aws-1-ap-northeast-1.pooler.supabase.com:5432/postgres")
+DATABASE_URL = os.getenv("DATABASE_URL", "")
 CLEAN_DB_URL = DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://").replace("postgres+asyncpg://", "postgres://")
 
 app = FastAPI(title="JobApply Backend & Autofill Copilot API")
