@@ -5,7 +5,8 @@ env:
 
 on:
   schedule:
-    - cron: '10 6 * * *'
+    - cron: '11 14 * * *'
+      timezone: 'Asia/Kolkata'
   workflow_dispatch:
 
 jobs:
