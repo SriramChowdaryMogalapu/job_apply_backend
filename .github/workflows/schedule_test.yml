@@ -1,8 +1,9 @@
 name: Test Schedule Workflow
 on:
   schedule:
-    - cron: '15 14 * * *'
+    - cron: '54 15 * * *'
       timezone: 'Asia/Kolkata'
+    - cron: '24 10 * * 1,3'  # 10:30 AM UTC on Mondays and Wednesdays
 
 jobs:
   test_schedule:
