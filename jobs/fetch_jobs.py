@@ -9,6 +9,7 @@ from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright
 from sentence_transformers import SentenceTransformer, util
 from db import init_db_pool, close_db_pool, sync_jobs_pooled
+import asyncio
 
 # ----------------- CONFIGURATION -----------------
 TARGET_LOCATIONS = {"bengaluru", "bangalore", "hyderabad", "india"}
@@ -537,6 +538,68 @@ def export_to_csv(jobs: List[Dict], filename: str = CSV_OUTPUT_PATH):
 
 # ----------------- MAIN PIPELINE -----------------
 
+def write_github_step_summary(
+    stats: Dict[str, Dict[str, Any]],
+    total_raw: int,
+    total_unique: int,
+    preferred_count: int,
+    suggested_count: int,
+    total_processed: int,
+    newly_inserted: int,
+    refreshed_count: int,
+    elapsed_sec: float,
+    error_msg: str = None
+) -> None:
+    """
+    Renders a clean summary dashboard directly on the GitHub Actions execution page.
+    """
+    summary_path = os.getenv("GITHUB_STEP_SUMMARY")
+    if not summary_path:
+        return
+
+    # Build Source Breakdown rows
+    breakdown_rows = []
+    for src, data in stats.items():
+        status_icon = "✅" if data["fetched"] > 0 else "⚠️"
+        breakdown_rows.append(f"| {src} | `{data['fetched']}` | {status_icon} {data['status']} |")
+    source_table_content = "\n".join(breakdown_rows)
+
+    db_status_block = f"""
+| Metric | Count |
+| :--- | :--- |
+| **Total Processed** | `{total_processed}` |
+| **✨ Newly Inserted** | `{newly_inserted}` |
+| **🔄 Existing / Refreshed** | `{refreshed_count}` |
+""" if not error_msg else f"> ❌ **Database Sync Failed:** `{error_msg}`"
+
+    markdown_content = f"""
+## 🚀 Daily Job Harvest Dashboard
+
+### 📊 Source Scrape Breakdown
+| Source / Target | Fetched | Status |
+| :--- | :--- | :--- |
+{source_table_content}
+| **Total Raw Fetched** | **`{total_raw}`** | |
+| **Unique Listings** | **`{total_unique}`** | |
+
+### 🎯 Ranking Classification
+- ⭐ **Preferred Fit Jobs:** `{preferred_count}`
+- 💡 **Suggested Jobs:** `{suggested_count}`
+
+### 🗄️ Database Sync (Supabase)
+{db_status_block}
+
+---
+⏱️ **Total Execution Time:** `{elapsed_sec:.2f}s`
+"""
+
+    try:
+        with open(summary_path, "a", encoding="utf-8") as f:
+            f.write(markdown_content)
+    except Exception as exc:
+        print(f"[!] Warning: Could not write GitHub step summary: {exc}")
+
+
 async def main():
     start_time = time.time()
     print("\n" + "="*70)
@@ -611,14 +674,12 @@ async def main():
     print(f"[*] Total Unique Listings: {len(unique_jobs)}")
     print("[*] Parsing experience, deadlines, contacts, skills, and ranking locally...")
 
-    preferred_jobs, suggested_jobs, all_enriched = enrich_and_rank_jobs(unique_jobs)
+    preferred_jobs, suggested_jobs, _ = enrich_and_rank_jobs(unique_jobs)
+    combined_jobs = preferred_jobs + suggested_jobs
 
-    # Export to CSV
-    combined_export = preferred_jobs + suggested_jobs
-    export_to_csv(combined_export, CSV_OUTPUT_PATH)
-
-    elapsed = time.time() - start_time
-    print(f"[*] Done in {elapsed:.2f} seconds. Exported {len(combined_export)} jobs to '{CSV_OUTPUT_PATH}'.")
+    # Export backup CSV
+    export_to_csv(combined_jobs, CSV_OUTPUT_PATH)
+    print(f"[*] Exported {len(combined_jobs)} jobs to '{CSV_OUTPUT_PATH}'.")
 
     # ----------------- PREVIEW PREFERRED JOBS -----------------
     print("\n" + "="*80)
@@ -633,13 +694,12 @@ async def main():
         print(f"  Contacts: {j.get('contacts')}")
         print(f"  URL: {j['url']}\n")
 
-    preferred_jobs, suggested_jobs, _ = enrich_and_rank_jobs(unique_jobs)
-    combined_jobs = preferred_jobs + suggested_jobs
+    # Phase 4: Sync to Database & Emit Annotations
+    total_processed = 0
+    newly_inserted = 0
+    refreshed_count = 0
+    sync_error = None
 
-    # 1. Export CSV backup
-    export_to_csv(combined_jobs, CSV_OUTPUT_PATH)
-
-    # 2. Sync to Supabase via Pooled Connection
     try:
         total_processed, newly_inserted = await sync_jobs_pooled(combined_jobs)
         refreshed_count = total_processed - newly_inserted
@@ -647,10 +707,38 @@ async def main():
             f"[*] Pooled DB Sync Complete: {total_processed} processed "
             f"({newly_inserted} newly inserted, {refreshed_count} existing/refreshed)."
         )
+        
+        # GitHub Actions Notice Annotation (Visible directly in GitHub Run summary banner)
+        print(
+            f"::notice title=Job Harvest Complete::"
+            f"Fetched {total_raw} raw jobs → {len(unique_jobs)} unique → "
+            f"{newly_inserted} new inserted, {refreshed_count} refreshed."
+        )
+
     except Exception as e:
+        sync_error = str(e)
         print(f"[!] Database sync error: {e}")
+        # GitHub Actions Error Annotation
+        print(f"::error title=Database Sync Failed::{sync_error}")
     finally:
         await close_db_pool()
+
+    elapsed = time.time() - start_time
+    print(f"[*] All tasks completed in {elapsed:.2f} seconds.")
+
+    # Write Markdown Summary to GitHub Actions Summary Tab
+    write_github_step_summary(
+        stats=stats,
+        total_raw=total_raw,
+        total_unique=len(unique_jobs),
+        preferred_count=len(preferred_jobs),
+        suggested_count=len(suggested_jobs),
+        total_processed=total_processed,
+        newly_inserted=newly_inserted,
+        refreshed_count=refreshed_count,
+        elapsed_sec=elapsed,
+        error_msg=sync_error
+    )
 
 if __name__ == "__main__":
     asyncio.run(main())
