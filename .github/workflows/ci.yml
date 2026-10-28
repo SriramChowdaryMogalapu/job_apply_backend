@@ -18,9 +18,9 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
 
-      - name: Install Linters & Core Libs
-        run: |
-          pip install -r backend/requirements.txt
+      # - name: Install Linters & Core Libs
+      #   run: |
+      #     pip install -r backend/requirements.txt
 
       # - name: Lint Code with Ruff
       #   run: |

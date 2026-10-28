@@ -6,13 +6,16 @@ env:
    FRONTEND_URL: ${{ secrets.FRONTEND_URL }} # if used
 
 on:
-  schedule:
-    - cron: '34 2 * * *'  # 8:04 AM IST
-  workflow_dispatch:
+  workflow_run:
+    workflows: ["Daily Job Harvest"]
+    types:
+      - completed
 
 jobs:
   notify:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
+    
     steps:
       - uses: actions/checkout@v4
 
