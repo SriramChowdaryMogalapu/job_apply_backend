@@ -19,10 +19,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Print Daily Job Harvest workflow status
+      - name: Print Daily Job Harvest workflow details
         run: |
-          echo "First workflow status: ${{ github.event.workflow_run.conclusion }}"
-
+          echo "First workflow ID: ${{ github.event.workflow_run.id }}"
+          echo "First workflow name: ${{ github.event.workflow_run.name }}"
+          echo "First workflow conclusion: ${{ github.event.workflow_run.conclusion }}"
       - name: Run only if Daily Job Harvest workflow succeeded
         if: ${{ github.event.workflow_run.conclusion == 'success' }}
         run: echo "First workflow succeeded!"

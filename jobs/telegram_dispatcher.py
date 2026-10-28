@@ -247,8 +247,14 @@ async def dispatch_digest() -> None:
                 if success:
                     notified_ids.append(job["id"])
                     print(f"    [{index}/{len(jobs)}] Sent: {job.get('title')} at {job.get('company')}")
+                    print(
+                        f"::notice title=Telegram Notification Sent::"
+                        f"Sent notification for job: {job.get('title')} at {job.get('company')}"
+                        f"URL: {job.get('url')}"
+                    )
                 else:
                     print(f"    [{index}/{len(jobs)}] Failed to send: {job.get('id')}")
+                    print(f"::error title=Telegram Notification Failed::{job.get('title')} at {job.get('company')} - URL: {job.get('url')}")
 
                 await asyncio.sleep(1.0)
 
@@ -256,6 +262,7 @@ async def dispatch_digest() -> None:
         if notified_ids:
             print(f"[*] Updating {len(notified_ids)} jobs to status 'QUEUED'...")
             await mark_jobs_as_notified(conn, notified_ids)
+            print(f"::notice title=Database Update::Marked {len(notified_ids)} jobs as notified and queued.")
             print("[*] Status update complete.")
 
     finally:
@@ -268,8 +275,10 @@ def main():
         asyncio.run(dispatch_digest())
     except KeyboardInterrupt:
         print("\n[!] Execution stopped by user.")
+        print("::warning title=Dispatcher Interrupted::Execution stopped by user.")
     except Exception as e:
         print(f"\n[!] Unexpected error: {e}")
+        print(f"::error title=Dispatcher Error::{e}")
         sys.exit(1)
 
 
