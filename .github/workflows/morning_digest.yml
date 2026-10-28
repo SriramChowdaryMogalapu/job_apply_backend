@@ -19,6 +19,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Print Daily Job Harvest workflow status
+        run: |
+          echo "First workflow status: ${{ github.event.workflow_run.conclusion }}"
+
+      - name: Run only if Daily Job Harvest workflow succeeded
+        if: ${{ github.event.workflow_run.conclusion == 'success' }}
+        run: echo "First workflow succeeded!"
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
